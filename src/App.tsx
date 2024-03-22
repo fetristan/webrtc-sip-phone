@@ -9,10 +9,19 @@ import {
   Inviter,
   Invitation
 } from 'sip.js';
+import * as CryptoJS from 'crypto-js';
 import './App.css';
 
 // The main component of the app
 function App() {
+
+  const getTURNCredentials = (name : string, secret : string, expiry : number): { username: string, password: string } => {  
+    const unixTimeStamp = Math.floor(Date.now() / 1000) + expiry; // 1 hour expiry
+    const username = [unixTimeStamp, name].join(':');
+    const password = CryptoJS.HmacSHA1(username, secret).toString(CryptoJS.enc.Base64);
+
+    return { username, password };
+  }
 
   // State hooks to manage the SIP user agent, sessions, call status and action status
   const [userAgent, setUserAgent] = useState<UserAgent | null>(null);
@@ -24,9 +33,16 @@ function App() {
   // SIP server configuration
   const server: string = process.env.REACT_APP_SERVER ?? '';
   const uriString: string = process.env.REACT_APP_URI_STRING ?? '';
-  const authorizationPassword = process.env.REACT_APP_AUTHORIZATION_PASSWORD ?? '';
-  const authorizationUsername = process.env.REACT_APP_AUTHORIZATION_USERNAME ?? '';
-  const targetUriString = process.env.REACT_APP_TARGET_URI_STRING ?? '';
+  const authorizationPassword: string = process.env.REACT_APP_AUTHORIZATION_PASSWORD ?? '';
+  const authorizationUsername: string = process.env.REACT_APP_AUTHORIZATION_USERNAME ?? '';
+  const targetUriString: string = process.env.REACT_APP_TARGET_URI_STRING ?? '';
+  const turnServer: string = process.env.REACT_APP_TURN_SERVER ?? '';
+  const turnServerName: string = process.env.REACT_APP_TURN_SERVER_NAME ?? '';
+  const turnAuthSecret: string= process.env.REACT_APP_TURN_AUTH_SECRET ?? '';
+  const turnAuthExpiry: number = parseInt(process.env.REACT_APP_TURN_AUTH_EXPIRY ?? '3600');
+  const turnCredentials: { username: string, password: string } = getTURNCredentials(turnServerName,turnAuthSecret,turnAuthExpiry);
+  const turnUsername: string = turnCredentials.username;
+  const turnCredential: string = turnCredentials.password;
 
   // Effect hook to initialize the SIP User Agent and handle its lifecycle
   useEffect(() => {
@@ -40,6 +56,17 @@ function App() {
     const userAgentOptions: UserAgentOptions = {
       authorizationPassword: authorizationPassword,
       authorizationUsername: authorizationUsername,
+      sessionDescriptionHandlerFactoryOptions: {
+        peerConnectionConfiguration: {
+          iceServers: [{
+            urls: turnServer,
+            username:turnUsername,
+            credential: turnCredential
+          }],
+          iceTransportPolicy: 'all',
+          constraints: { audio: true, video: false }
+        },
+      },
       transportOptions: {
         server
       },
@@ -98,10 +125,10 @@ function App() {
     // Cleaning up on component unmount
     setUserAgent(ua);
     return () => {
-      ua.stop();
-      console.log('User Agent stopped');
+      //ua.stop();
+      console.log('User Agent loaded');
     };
-  }, [uriString, authorizationPassword, authorizationUsername, server]);
+  }, []);
 
   // Function to initiate a call
   const makeCall = (): void => {
@@ -186,7 +213,6 @@ function App() {
   return (
     <div className='App'>
       <header className='App-header'>
-        <p>
         <div className='Phone'>
           <div className='Screen'><p className='Screen-Text'>{callStatus}</p><p className='Screen-Text'>{actionStatus}</p></div>
             <div className='Boutons'>
@@ -207,7 +233,6 @@ function App() {
                 <button onClick={() => sendDtmf('#')}>#</button>
             </div>
         </div>
-        </p>
       </header>
     </div>
   );

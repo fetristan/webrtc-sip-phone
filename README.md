@@ -5,6 +5,7 @@
 ## Features
 
 - Make and receive calls via SIP
+- Use Turn server for NAT traversal
 - Hang up and answer calls
 - DTMF support
 - Display call status
@@ -41,15 +42,15 @@ The application will be available at http://localhost:3000.
 
 Set up your SIP server and credentials in the .env file:
 
-    REACT_APP_SERVER=wss://your-sip-server.com:7443
-
-    REACT_APP_URI_STRING=sip:your-username@your-sip-server.com
-
-    REACT_APP_AUTHORIZATION_PASSWORD=your-password
-
-    REACT_APP_AUTHORIZATION_USERNAME=your-username
-
-    REACT_APP_TARGET_URI_STRING=sip:target-number@target-sip-server.com:5080 
+      REACT_APP_SERVER=wss://your-sip-server.com:7443
+      REACT_APP_URI_STRING=sip:your-username@your-sip-server.com
+      REACT_APP_AUTHORIZATION_PASSWORD=your-password
+      REACT_APP_AUTHORIZATION_USERNAME=your-username
+      REACT_APP_TARGET_URI_STRING=sip:target-number@target-sip-server.com:5080
+      REACT_APP_TURN_SERVER=turn:your-turn-server.com:3478
+      REACT_APP_TURN_SERVER_NAME=your-turn-server.com
+      REACT_APP_TURN_AUTH_SECRET=your-turn-auth-secret
+      REACT_APP_TURN_AUTH_EXPIRY=3600
 
 Replace the placeholders with your actual server details.
 

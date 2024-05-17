@@ -1,7 +1,4 @@
-import React, {
-  useEffect,
-  useState
-} from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   UserAgent,
   UserAgentOptions,
@@ -12,23 +9,26 @@ import {
 import * as CryptoJS from 'crypto-js';
 import './App.css';
 
+// Utility function to get the peerConnection
+const getPeerConnection = (sessionDescriptionHandler: any) => {
+  return sessionDescriptionHandler.peerConnection;
+};
+
 // The main component of the app
 function App() {
-
-  const getTURNCredentials = (name : string, secret : string, expiry : number): { username: string, password: string } => {  
+  const getTURNCredentials = (name: string, secret: string, expiry: number): { username: string, password: string } => {
     const unixTimeStamp = Math.floor(Date.now() / 1000) + expiry; // 1 hour expiry
     const username = [unixTimeStamp, name].join(':');
     const password = CryptoJS.HmacSHA1(username, secret).toString(CryptoJS.enc.Base64);
-
     return { username, password };
   }
-
   // State hooks to manage the SIP user agent, sessions, call status and action status
   const [userAgent, setUserAgent] = useState<UserAgent | null>(null);
   const [incomingSession, setIncomingSession] = useState<Invitation | null>(null);
   const [outgoingSession, setOutgoingSession] = useState<Inviter | null>(null);
   const [callStatus, setCallStatus] = useState<string>('No call in progress');
   const [actionStatus, setActionStatus] = useState<string>('');
+  const audioRef = useRef<HTMLAudioElement>(null); // Reference for audio element
 
   // SIP server configuration
   const server: string = process.env.REACT_APP_SERVER ?? '';
@@ -38,9 +38,9 @@ function App() {
   const targetUriString: string = process.env.REACT_APP_TARGET_URI_STRING ?? '';
   const turnServer: string = process.env.REACT_APP_TURN_SERVER ?? '';
   const turnServerName: string = process.env.REACT_APP_TURN_SERVER_NAME ?? '';
-  const turnAuthSecret: string= process.env.REACT_APP_TURN_AUTH_SECRET ?? '';
+  const turnAuthSecret: string = process.env.REACT_APP_TURN_AUTH_SECRET ?? '';
   const turnAuthExpiry: number = parseInt(process.env.REACT_APP_TURN_AUTH_EXPIRY ?? '3600');
-  const turnCredentials: { username: string, password: string } = getTURNCredentials(turnServerName,turnAuthSecret,turnAuthExpiry);
+  const turnCredentials: { username: string, password: string } = getTURNCredentials(turnServerName, turnAuthSecret, turnAuthExpiry);
   const turnUsername: string = turnCredentials.username;
   const turnCredential: string = turnCredentials.password;
 
@@ -60,11 +60,11 @@ function App() {
         peerConnectionConfiguration: {
           iceServers: [{
             urls: turnServer,
-            username:turnUsername,
+            username: turnUsername,
             credential: turnCredential
           }],
           iceTransportPolicy: 'all',
-          constraints: { audio: true, video: false }
+          constraints: { audio: true, video: false },
         },
       },
       transportOptions: {
@@ -74,7 +74,7 @@ function App() {
     };
 
     // Initializing the UserAgent and registering event listeners
-    const ua  = new UserAgent(userAgentOptions);
+    const ua = new UserAgent(userAgentOptions);
     ua.start().then(() => {
       console.log('User Agent started');
       const registerer = new Registerer(ua);
@@ -84,39 +84,7 @@ function App() {
           console.log('Incoming call from ', invitation.remoteIdentity.toString());
           setCallStatus(`Incoming call from ${invitation.remoteIdentity.toString()}`);
           setIncomingSession(invitation);
-        },
-        onConnect: () => {
-          console.log('Call connected');
-          setCallStatus('Call connected');
-        },
-        onDisconnect: () => {
-          console.log('Call disconnected');
-          setCallStatus('Call disconnected');
-        },
-        onRegister: () => {
-          console.log('Registered');
-          setCallStatus('Call disconnected');
-        },onMessage: (message) => {
-          console.log('Message received', message);
-          setCallStatus(`Message received ${message}`);
-        },onNotify: (notification) => {
-          console.log('Notification received', notification);
-          setCallStatus(`Notification received ${notification}`);
-        },onRefer: (referral) => {
-          console.log('Referral received', referral);
-          setCallStatus(`Referral received ${referral}`);
-        },onReferRequest: (referral) => {
-          console.log('Referral request received', referral);
-          setCallStatus(`Referral request received ${referral}`);
-        },onRegisterRequest: (registration) => {
-          console.log('Registration request received', registration);
-          setCallStatus(`Registration request received ${registration}`);
-        },onSubscribe: (subscription) => {
-          console.log('Subscription received', subscription);
-          setCallStatus(`Subscription received ${subscription}`);
-        },onSubscribeRequest: (subscription) => {
-          console.log('Subscription request received', subscription);
-          setCallStatus(`Subscription request received ${subscription}`);
+          handleIncomingCall(invitation); // Handle the incoming call
         }
       };
       registerer.register();
@@ -125,15 +93,25 @@ function App() {
     // Cleaning up on component unmount
     setUserAgent(ua);
     return () => {
-      //ua.stop();
-      console.log('User Agent loaded');
+      ua.stop();
+      console.log('User Agent stopped');
     };
   }, []);
 
   // Function to initiate a call
+  const handleIncomingCall = (invitation: Invitation) => {
+    const peerConnection = getPeerConnection(invitation.sessionDescriptionHandler);
+    peerConnection.ontrack = (event: RTCTrackEvent) => {
+      if (audioRef.current) {
+        audioRef.current.srcObject = event.streams[0];
+        audioRef.current.play();
+      }
+    };
+  };
+
   const makeCall = (): void => {
     const targetUri = UserAgent.makeURI(targetUriString);
-    setActionStatus(`Make Outgoing call`);
+    setActionStatus('Make Outgoing call');
     if (!targetUri) {
       console.error(`Invalid target URI: ${targetUriString}`);
       return;
@@ -144,22 +122,40 @@ function App() {
         console.log('Call initiated to', targetUriString);
         setCallStatus(`Outgoing call to ${inviter.remoteIdentity.toString()}`);
         setOutgoingSession(inviter);
+
+        const peerConnection = getPeerConnection(inviter.sessionDescriptionHandler);
+        peerConnection.ontrack = (event: RTCTrackEvent) => {
+          if (audioRef.current) {
+            audioRef.current.srcObject = event.streams[0];
+            audioRef.current.play();
+          }
+        };
       }).catch((error) => console.error('Failed to initiate call:', error));
     }
   };
 
   // Function to answer an incoming call
   const answerCall = (): void => {
-    setActionStatus(`Answer call`);
-    incomingSession?.accept().then(() => {
-      setCallStatus('Call answered');
-      console.log('Call answered');
-    }).catch((error) => console.error('Failed to accept call:', error));
+    setActionStatus('Answer call');
+    if (incomingSession) {
+      incomingSession.accept().then(() => {
+        setCallStatus('Call answered');
+        console.log('Call answered');
+
+        const peerConnection = getPeerConnection(incomingSession.sessionDescriptionHandler);
+        peerConnection.ontrack = (event: RTCTrackEvent) => {
+          if (audioRef.current) {
+            audioRef.current.srcObject = event.streams[0];
+            audioRef.current.play();
+          }
+        };
+      }).catch((error) => console.error('Failed to accept call:', error));
+    }
   };
 
   // Function to hang up an ongoing call
   const hangupCall = (): void => {
-    setActionStatus(`Hangup or reject call`);
+    setActionStatus('Hangup or reject call');
     if (incomingSession) {
       incomingSession.reject().then(() => {
         setCallStatus('Incoming call rejected');
@@ -170,8 +166,7 @@ function App() {
         console.log('Incoming call hangup');
       }).catch((error) => console.error('Failed to hangup incoming call:', error));
       setIncomingSession(null);
-    }
-    else if (outgoingSession) {
+    } else if (outgoingSession) {
       outgoingSession.bye().then(() => {
         setCallStatus('Outgoing call hung up');
         console.log('Outgoing call hung up');
@@ -183,7 +178,7 @@ function App() {
   };
 
   // Function to send DTMF tones during a call
-  const sendDtmf = (dtmf : string): void => {
+  const sendDtmf = (dtmf: string): void => {
     setActionStatus(`Send DTMF ${dtmf}`);
     console.log(`Send dtmf ${dtmf}`);
     const options = {
@@ -199,8 +194,7 @@ function App() {
       incomingSession.info(options).then(() => {
         console.log('DTMF sent');
       }).catch((error) => console.error('Failed to send DTMF:', error));
-    }
-    else if (outgoingSession) {
+    } else if (outgoingSession) {
       outgoingSession.info(options).then(() => {
         console.log('DTMF sent');
       }).catch((error) => console.error('Failed to send DTMF:', error));
@@ -214,25 +208,29 @@ function App() {
     <div className='App'>
       <header className='App-header'>
         <div className='Phone'>
-          <div className='Screen'><p className='Screen-Text'>{callStatus}</p><p className='Screen-Text'>{actionStatus}</p></div>
-            <div className='Boutons'>
-                <button className='Hangup' onClick={hangupCall}>Hangup</button>
-                <button onClick={makeCall}>+</button>
-                <button className='Answer' onClick={answerCall}>Answer</button>
-                <button onClick={() => sendDtmf('1')}>1</button>
-                <button onClick={() => sendDtmf('2')}>2</button>
-                <button onClick={() => sendDtmf('3')}>3</button>
-                <button onClick={() => sendDtmf('4')}>4</button>
-                <button onClick={() => sendDtmf('5')}>5</button>
-                <button onClick={() => sendDtmf('6')}>6</button>
-                <button onClick={() => sendDtmf('7')}>7</button>
-                <button onClick={() => sendDtmf('8')}>8</button>
-                <button onClick={() => sendDtmf('9')}>9</button>
-                <button onClick={() => sendDtmf('*')}>*</button>
-                <button onClick={() => sendDtmf('0')}>0</button>
-                <button onClick={() => sendDtmf('#')}>#</button>
-            </div>
+          <div className='Screen'>
+            <p className='Screen-Text'>{callStatus}</p>
+            <p className='Screen-Text'>{actionStatus}</p>
+          </div>
+          <div className='Boutons'>
+            <button className='Hangup' onClick={hangupCall}>Hangup</button>
+            <button onClick={makeCall}>+</button>
+            <button className='Answer' onClick={answerCall}>Answer</button>
+            <button onClick={() => sendDtmf('1')}>1</button>
+            <button onClick={() => sendDtmf('2')}>2</button>
+            <button onClick={() => sendDtmf('3')}>3</button>
+            <button onClick={() => sendDtmf('4')}>4</button>
+            <button onClick={() => sendDtmf('5')}>5</button>
+            <button onClick={() => sendDtmf('6')}>6</button>
+            <button onClick={() => sendDtmf('7')}>7</button>
+            <button onClick={() => sendDtmf('8')}>8</button>
+            <button onClick={() => sendDtmf('9')}>9</button>
+            <button onClick={() => sendDtmf('*')}>*</button>
+            <button onClick={() => sendDtmf('0')}>0</button>
+            <button onClick={() => sendDtmf('#')}>#</button>
+          </div>
         </div>
+        <audio id="audio" ref={audioRef}></audio>
       </header>
     </div>
   );

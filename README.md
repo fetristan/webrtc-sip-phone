@@ -1,6 +1,6 @@
 # WebRTC SIP Phone Tester
 
-![WebRTC SIP Phone Screenshot](readme.png)
+![image](https://github.com/fetristan/webrtc-sip-phone/assets/9719907/caef803a-78ea-4135-aa43-253f4ee99699)
 
 ## Features
 

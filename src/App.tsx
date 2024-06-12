@@ -4,7 +4,8 @@ import {
   UserAgentOptions,
   Registerer,
   Inviter,
-  Invitation
+  Invitation,
+  SessionState
 } from 'sip.js';
 import * as CryptoJS from 'crypto-js';
 import './App.css';
@@ -28,6 +29,7 @@ function App() {
   const [outgoingSession, setOutgoingSession] = useState<Inviter | null>(null);
   const [callStatus, setCallStatus] = useState<string>('No call in progress');
   const [actionStatus, setActionStatus] = useState<string>('');
+  const [volume, setVolume] = useState<number>(1); // State for volume control
   const audioRef = useRef<HTMLAudioElement>(null); // Reference for audio element
 
   // SIP server configuration
@@ -85,6 +87,24 @@ function App() {
           setCallStatus(`Incoming call from ${invitation.remoteIdentity.toString()}`);
           setIncomingSession(invitation);
           handleIncomingCall(invitation); // Handle the incoming call
+          invitation.stateChange.addListener((state: SessionState) => {
+            console.log(`Session state changed to ${state}`);
+            switch (state) {
+              case SessionState.Initial:
+                break;
+              case SessionState.Establishing:
+                break;
+              case SessionState.Established:
+                setupRemoteMedia(invitation);
+                break;
+              case SessionState.Terminating:
+                // fall through
+              case SessionState.Terminated:
+                cleanupMedia();
+                break;
+              default:
+                throw new Error("Unknown session state.");
+          }});
         }
       };
       registerer.register();
@@ -98,17 +118,14 @@ function App() {
     };
   }, []);
 
-  // Function to initiate a call
+  // Function to handle incoming call
   const handleIncomingCall = (invitation: Invitation) => {
-    const peerConnection = getPeerConnection(invitation.sessionDescriptionHandler);
-    peerConnection.ontrack = (event: RTCTrackEvent) => {
-      if (audioRef.current) {
-        audioRef.current.srcObject = event.streams[0];
-        audioRef.current.play();
-      }
-    };
+    if (invitation.state === SessionState.Initial) {
+      setIncomingSession(invitation)
+    }
   };
 
+  // Function to initiate a call
   const makeCall = (): void => {
     const targetUri = UserAgent.makeURI(targetUriString);
     setActionStatus('Make Outgoing call');
@@ -119,10 +136,9 @@ function App() {
     if (userAgent) {
       const inviter = new Inviter(userAgent, targetUri);
       inviter.invite().then(() => {
-        console.log('Call initiated to', targetUriString);
+        console.log(`Outgoing call to ${inviter.remoteIdentity.toString()}`);
         setCallStatus(`Outgoing call to ${inviter.remoteIdentity.toString()}`);
         setOutgoingSession(inviter);
-
         const peerConnection = getPeerConnection(inviter.sessionDescriptionHandler);
         peerConnection.ontrack = (event: RTCTrackEvent) => {
           if (audioRef.current) {
@@ -137,25 +153,19 @@ function App() {
   // Function to answer an incoming call
   const answerCall = (): void => {
     setActionStatus('Answer call');
-    if (incomingSession) {
+    console.log(`Answer call`);
+    if (incomingSession && incomingSession.state === SessionState.Initial) {
       incomingSession.accept().then(() => {
-        setCallStatus('Call answered');
-        console.log('Call answered');
-
-        const peerConnection = getPeerConnection(incomingSession.sessionDescriptionHandler);
-        peerConnection.ontrack = (event: RTCTrackEvent) => {
-          if (audioRef.current) {
-            audioRef.current.srcObject = event.streams[0];
-            audioRef.current.play();
-          }
-        };
-      }).catch((error) => console.error('Failed to accept call:', error));
+        setCallStatus('Incoming call answered');
+        console.log('Incoming call answered');
+      }).catch((error) => console.error('Failed to accept incoming call:', error));
     }
   };
 
   // Function to hang up an ongoing call
   const hangupCall = (): void => {
     setActionStatus('Hangup or reject call');
+    console.log('Hangup or reject call');
     if (incomingSession) {
       incomingSession.reject().then(() => {
         setCallStatus('Incoming call rejected');
@@ -203,6 +213,50 @@ function App() {
     }
   };
 
+  // Function to handle volume change
+  const handleVolumeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newVolume = parseFloat(event.target.value);
+    setVolume(newVolume);
+    if (audioRef.current) {
+      audioRef.current.volume = newVolume;
+    }
+  };
+
+  // Function to set media resources
+  const setupRemoteMedia = (invitation: Invitation) => {
+    //const localStream = new MediaStream();
+    const remoteStream = new MediaStream();
+    //const localMedia = document.getElementById('localVideo');
+    const peerConnection = getPeerConnection(invitation.sessionDescriptionHandler);
+    
+    peerConnection.getReceivers().forEach((receiver: any) => {
+      if (receiver.track) {
+        remoteStream.addTrack(receiver.track);
+      }
+    });
+    if (audioRef.current) {
+      audioRef.current.srcObject = remoteStream;
+      audioRef.current.play();
+    }
+
+    /*peerConnection.getSenders().forEach((sender: any) => {
+      if (sender.track) {
+        localStream.addTrack(sender.track);
+      }
+    });
+    localMedia.srcObject = localStream;
+    localMedia.play();*/
+  }
+
+  // Cleanup function to stop media resources
+  const cleanupMedia = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.srcObject = null;
+      console.log('Call sound ended');
+    }
+  }
+
   // Render function to display the UI components
   return (
     <div className='App'>
@@ -228,6 +282,18 @@ function App() {
             <button onClick={() => sendDtmf('*')}>*</button>
             <button onClick={() => sendDtmf('0')}>0</button>
             <button onClick={() => sendDtmf('#')}>#</button>
+          </div>
+          <div className='VolumeControl'>
+            <label htmlFor='volume'>Volume: </label>
+            <input
+              id='volume'
+              type='range'
+              min='0'
+              max='1'
+              step='0.01'
+              value={volume}
+              onChange={handleVolumeChange}
+            />
           </div>
         </div>
         <audio id="audio" ref={audioRef}></audio>

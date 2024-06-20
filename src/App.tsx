@@ -139,13 +139,7 @@ function App() {
         console.log(`Outgoing call to ${inviter.remoteIdentity.toString()}`);
         setCallStatus(`Outgoing call to ${inviter.remoteIdentity.toString()}`);
         setOutgoingSession(inviter);
-        const peerConnection = getPeerConnection(inviter.sessionDescriptionHandler);
-        peerConnection.ontrack = (event: RTCTrackEvent) => {
-          if (audioRef.current) {
-            audioRef.current.srcObject = event.streams[0];
-            audioRef.current.play();
-          }
-        };
+        setupRemoteMedia(inviter);
       }).catch((error) => console.error('Failed to initiate call:', error));
     }
   };
@@ -180,6 +174,7 @@ function App() {
       outgoingSession.bye().then(() => {
         setCallStatus('Outgoing call hung up');
         console.log('Outgoing call hung up');
+        cleanupMedia();
       }).catch((error) => console.error('Failed to hangup outgoing call:', error));
       setOutgoingSession(null);
     } else {
@@ -223,7 +218,7 @@ function App() {
   };
 
   // Function to set media resources
-  const setupRemoteMedia = (invitation: Invitation) => {
+  const setupRemoteMedia = (invitation: Invitation | Inviter) => {
     //const localStream = new MediaStream();
     const remoteStream = new MediaStream();
     //const localMedia = document.getElementById('localVideo');
